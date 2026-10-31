@@ -12,6 +12,7 @@ export const TB=[];ZS.forEach(z=>XS.forEach(x=>TB.push({x,z})));[[31,-3],[41,-3]
 export const seatPos=q=>{const t=TB[q>>2],d=SD[q&3];return{x:t.x+d[0]*1.8,z:t.z+d[1]*1.8,ox:t.x+d[0]*2.9,oz:t.z+d[1]*2.9}};
 const KX=[-17.25,-5.75,5.75,17.25],KS=[[0,5,6],[1,2],[4,3],[7,8]];
 export const STN=[];KS.forEach((l,ki)=>l.forEach((d,j)=>{STN[d]=[KX[ki]+(j-(l.length-1)/2)*(l.length===3?3.4:4.8),-16.2]}));[9,10,11,12,13].forEach((d,j)=>{STN[d]=[37+(j-2)*3.2,-10.2]});
+export const NPC=[10.5,29];
 export const KIOSK=[[11.5,15.5],[16.5,15.5]],STAGE=[0,55],PLOT=[14,18.4,22.8,27.2];
 export const ltOn=now=>(now/1000)%120<50;
 export const dirtyAt=(t,now)=>(Math.floor(now/30000)+t*7)%4===0;
@@ -171,13 +172,11 @@ export class Game{
         if(!this.cd(p,'hv',800,now)||p.bag[m.i]>=99)return;
         this.plant[k]=now+10000;p.bag[m.i]++;this.all({t:'plant',k,t:this.plant[k]});
         this.send(p,this.me(p));this.fx(p,['양파','당근','파','고추'][m.i]+' 수확! 🎒','harvest');return}
-      case 'sell':{
-        if(p.r!=='g')return;const t=this.byS.get(m.to);if(!t||t.r!=='c')return this.fx(p,'지금 접속한 요리사가 없어요','err');
+      case 'sell':{ // 수확물은 상점지기(NPC)에게 개당 100원
+        if(p.r!=='g'||p.q>=0)return;
+        if(dist(p.x,p.z,NPC[0],NPC[1])>7)return this.fx(p,'상점지기에게 가까이 가요','err');
         const tot=p.bag.reduce((a,b)=>a+b,0);if(!tot)return this.fx(p,'수확한 채소가 없어요','err');
-        if(t.coins<tot*100)return this.fx(p,'요리사의 돈이 부족해서 살 수 없대요','err');
-        t.coins-=tot*100;p.coins+=tot*100;p.bag.forEach((c,i)=>{t.inv[9+i]=Math.min(999,t.inv[9+i]+c)});p.bag=[0,0,0,0];p.sv=t.sv=1;
-        this.send(p,this.me(p));this.fx(p,'채소 판매 완료! +'+tot*100+'원','coin',tot*100);
-        this.send(t,this.me(t));this.fx(t,p.n+' 님에게 채소 '+tot+'개를 '+tot*100+'원에 샀어요! 📦','coin');return}
+        p.bag=[0,0,0,0];this.give(p,tot*100,'고맙소! 채소 '+tot+'개 판매 +'+tot*100+'원','coin');this.all({t:'npc',m:1});return}
       case 'buy':{
         if(p.r!=='c'||!isInt(m.d,0,13))return;const cost=REC[m.d].reduce((a,i)=>a+IP[i]*3,0);
         if(p.coins<cost)return this.fx(p,'돈이 부족해요','err');

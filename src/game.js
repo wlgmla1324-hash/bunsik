@@ -26,14 +26,14 @@ const SPAWN={g:[0,21],c:[0,-11.5]};
 export class Game{
   // io: {send(target,obj), raw(target,jsonString), later(fn,ms), save(p,snap), close(ws,code,reason), store:{get,put,delete}}
   constructor(io){this.io=io;this.P=new Map();this.byS=new Map();this.byWs=new Map();this.nsid=1;this.cleaned=new Set();this.plant=new Array(16).fill(0);this.dirty=new Set();this.timer=false}
-  pub(p){return{s:p.s,n:p.n,r:p.r,c:p.c,x:p.x,z:p.z,ry:p.ry,q:p.q,st:p.st,o:p.o,a:p.a,eu:p.eu,j:p.albas}}
-  me(p,full){const m={t:'me',coins:p.coins,inv:p.inv,bag:p.bag,hand:p.hand,albas:p.albas,q:p.q,st:p.st,o:p.o,eu:p.eu,x:+p.x.toFixed(2),z:+p.z.toFixed(2)};if(full){m.n=p.n;m.r=p.r;m.c=p.c}return m}
-  snap(p){return{id:p.id,s:p.s,n:p.n,r:p.r,c:p.c,x:p.x,z:p.z,ry:p.ry,q:p.q,st:p.st,o:p.o,a:p.a,eu:p.eu,coins:p.coins,inv:p.inv,bag:p.bag,hand:p.hand,albas:p.albas}}
+  pub(p){return{s:p.s,n:p.n,r:p.r,c:p.c,x:p.x,z:p.z,ry:p.ry,q:p.q,st:p.st,o:p.o,a:p.a,eu:p.eu,j:p.albas,k:p.k||0}}
+  me(p,full){const m={t:'me',coins:p.coins,inv:p.inv,bag:p.bag,hand:p.hand,albas:p.albas,q:p.q,st:p.st,o:p.o,eu:p.eu,k:p.k||0,job:p.job||null,x:+p.x.toFixed(2),z:+p.z.toFixed(2)};if(full){m.n=p.n;m.r=p.r;m.c=p.c}return m}
+  snap(p){return{id:p.id,s:p.s,n:p.n,r:p.r,c:p.c,x:p.x,z:p.z,ry:p.ry,q:p.q,st:p.st,o:p.o,a:p.a,eu:p.eu,k:p.k||0,ct:p.ct||0,job:p.job||null,coins:p.coins,inv:p.inv,bag:p.bag,hand:p.hand,albas:p.albas}}
   restore(ws,a){const p={...a,ws,ck:null,cd:{},lp:Date.now(),rl:{t:0,n:0},sv:0};this.P.set(p.id,p);this.byS.set(p.s,p);this.byWs.set(ws,p);this.nsid=Math.max(this.nsid,p.s+1);return p}
   send(p,o){this.io.send(p,o)}
   all(o,ex){const s=JSON.stringify(o);for(const q of this.P.values())if(q!==ex)this.io.raw(q,s)}
   fx(p,x,e,a){this.send(p,{t:'fx',x,e,a})}
-  st(p){this.all({t:'st',s:p.s,q:p.q,st:p.st,o:p.o,eu:p.eu,r:p.r},p);this.io.save(p,this.snap(p))}
+  st(p){this.all({t:'st',s:p.s,q:p.q,st:p.st,o:p.o,eu:p.eu,r:p.r,k:p.k||0},p);this.io.save(p,this.snap(p))}
   touch(p){this.dirty.add(p.s);if(!this.timer){this.timer=true;this.io.later(()=>this.flush(),150)}}
   flush(){this.timer=false;const d=[];for(const s of this.dirty){const p=this.byS.get(s);if(p){d.push([s,+p.x.toFixed(2),+p.z.toFixed(2),+p.ry.toFixed(2),p.a]);this.io.save(p,this.snap(p))}}this.dirty.clear();if(d.length)this.all({t:'pd',d})}
   async persist(p,now){p.sv=0;await this.io.store.put('p:'+p.id,{n:p.n,c:p.c,coins:p.coins,inv:p.inv,bag:p.bag,albas:p.albas,x:p.x,z:p.z,t:now})}
@@ -56,7 +56,7 @@ export class Game{
       const rec=(await this.io.store.get('p:'+id))||{};
       const fresh=rec.t&&now-rec.t<120000&&fin(rec.x)&&fin(rec.z);
       p={id,s:this.nsid++,n,r:m.r,c:0,x:fresh?clamp(rec.x,-52,52):SPAWN[m.r][0],z:fresh?clamp(rec.z,-12.7,60):SPAWN[m.r][1],ry:0,q:-1,st:0,o:-1,a:0,eu:0,
-        coins:isInt(rec.coins,0,1e9)?rec.coins:1000,inv:okArr(rec.inv,18)?rec.inv:defInv(),bag:okArr(rec.bag,4)?rec.bag:[0,0,0,0],hand:null,albas:isInt(rec.albas,0,3)?rec.albas:0,
+        coins:isInt(rec.coins,0,1e9)?rec.coins:1000,inv:okArr(rec.inv,18)?rec.inv:defInv(),bag:okArr(rec.bag,4)?rec.bag:[0,0,0,0],hand:null,k:0,ct:0,job:null,albas:isInt(rec.albas,0,3)?rec.albas:0,
         ws,ck:null,cd:{},lp:now,rl:{t:0,n:0},sv:0};
       this.P.set(id,p);this.byS.set(p.s,p);this.byWs.set(ws,p);
     }
@@ -69,10 +69,13 @@ export class Game{
     this.all({t:'join',p:this.pub(p)},p);
   }
 
-  settle(p){ // 접속 종료 시 진행 중이던 주문 정리
-    if(p.st===1){p.st=0;p.o=-1}
-    else if(p.st===2){p.coins=Math.max(0,p.coins-PR[p.o]);p.st=0;p.o=-1;p.sv=1}
-    p.q=-1;p.hand=null;p.ck=null;p.a=0;
+  settle(p){ // 접속 종료 시 진행 중이던 주문 정리 (선불 주문은 환불)
+    if(p.st===1){p.coins+=PR[p.o];p.sv=1;if(p.k){const c=this.byS.get(p.k);if(c){c.job=null;c.hand=null;this.send(c,this.me(c));this.fx(c,'손님이 나가서 주문이 취소됐어요','err')}}}
+    if(p.job){const c=this.byS.get(p.job.s);if(c&&c.k===p.s){c.k=0;c.ct=0;this.st(c);this.send(c,this.me(c))}p.job=null}
+    p.st=0;p.o=-1;p.k=0;p.q=-1;p.hand=null;p.ck=null;p.a=0;
+  }
+  expire(now){ // 수락만 하고 3분 넘게 안 가져온 주문은 다시 열어 줌
+    for(const t of this.P.values())if(t.st===1&&t.k&&now-t.ct>180000){const c=this.byS.get(t.k);if(c){c.job=null;c.hand=null;this.send(c,this.me(c));this.fx(c,'시간이 지나 주문이 다른 요리사에게 넘어갔어요','err')}t.k=0;t.ct=0;this.st(t);this.send(t,this.me(t))}
   }
   async onClose(ws,now){
     const p=this.byWs.get(ws);this.byWs.delete(ws);if(!p||p.ws!==ws)return;
@@ -85,7 +88,7 @@ export class Game{
     if(!m||typeof m!=='object'||typeof m.t!=='string')return;
     if(m.t==='hello')return this.hello(ws,m,now);
     const p=this.byWs.get(ws);if(!p)return;
-    if(now-p.rl.t>=1000){p.rl.t=now;p.rl.n=0}if(++p.rl.n>40)return;
+    if(now-p.rl.t>=1000){p.rl.t=now;p.rl.n=0}if(++p.rl.n>40)return;if(p.st===2&&now>=p.eu){p.st=0;p.o=-1}
     switch(m.t){
       case 'pos':{
         const ry=fin(m.ry)?clamp(m.ry,-7,7):p.ry;
@@ -106,13 +109,25 @@ export class Game{
         if(p.r!=='g'||p.q<0||p.st!==0||!isInt(m.d,0,13)||!menuOK(m.d,p.q))return this.fx(p,'지금은 주문할 수 없어요','err');
         if(m.d===6&&!ltOn(now))return this.fx(p,'한정 모찌떡은 지금 판매 시간이 아니에요','err');
         if(p.coins<PR[m.d])return this.fx(p,'돈이 부족해요! 춤이나 청소로 벌어요','err');
-        p.st=1;p.o=m.d;this.send(p,this.me(p));this.fx(p,NM[m.d]+' 주문 완료! 요리사가 만드는 중이에요','order');this.st(p);return}
+        p.coins-=PR[m.d];p.sv=1;p.st=1;p.o=m.d;p.k=0;p.ct=0;   // 선불 결제
+        this.send(p,this.me(p));this.fx(p,NM[m.d]+' 주문 완료! (-'+PR[m.d]+'원 선불) 요리사가 수락하면 알려 드려요','order');this.st(p);return}
       case 'cancel':{
         if(p.st!==1)return this.fx(p,'취소할 주문이 없어요','err');
-        p.st=0;p.o=-1;this.send(p,this.me(p));this.fx(p,'주문을 취소했어요. 결제는 되지 않았어요','tap');this.st(p);return}
+        if(p.k)return this.fx(p,'요리사가 이미 수락해서 취소할 수 없어요','err');
+        p.coins+=PR[p.o];p.sv=1;p.st=0;p.o=-1;this.send(p,this.me(p));this.fx(p,'주문을 취소했어요. 코인을 돌려받았어요','tap');this.st(p);return}
+      case 'accept':{
+        if(p.r!=='c')return;this.expire(now);
+        const t=this.byS.get(m.to);
+        if(p.job)return this.fx(p,'먼저 진행 중인 주문을 끝내요','err');
+        if(!t||t.r!=='g'||t.st!==1||t.q<0)return this.fx(p,'이미 사라진 주문이에요','err');
+        if(t.k)return this.fx(p,'이미 다른 요리사가 수락했어요','err');
+        t.k=p.s;t.ct=now;p.job={s:t.s,d:t.o,q:t.q};
+        this.send(p,this.me(p));this.fx(p,NM[t.o]+' 주문 수락! 조리대에서 요리해요 🔥','good');this.st(t);this.send(t,this.me(t));return}
       case 'cook':{
         if(p.r!=='c'||p.hand||!isInt(m.d,0,13))return;
         if(p.ck&&now-p.ck.t0<20000)return;
+        if(!p.job)return this.fx(p,'먼저 주문을 수락해요 🔔','err');
+        if(m.d!==p.job.d)return this.fx(p,'수락한 주문은 '+NM[p.job.d]+'이에요','err');
         const s=STN[m.d];if(dist(p.x,p.z,s[0],s[1])>7)return this.fx(p,'조리대에서 너무 멀어요','err');
         if(!REC[m.d].every(i=>p.inv[i]>0))return this.fx(p,'재료가 부족해요! 📦 재료주문을 눌러요','err');
         REC[m.d].forEach(i=>p.inv[i]--);p.sv=1;p.ck={d:m.d,t0:now,c:.3+Math.random()*.4};
@@ -127,17 +142,11 @@ export class Game{
       case 'serve':{
         if(p.r!=='c'||!p.hand)return;
         const t=this.byS.get(m.to);
-        if(!t||t.r!=='g'||t.st!==1||t.q<0||t.o!==p.hand.d||dist(p.x,p.z,t.x,t.z)>8)return this.fx(p,'앗, 주문한 메뉴가 아니거나 너무 멀어요!','err');
+        if(!p.job||m.to!==p.job.s||!t||t.r!=='g'||t.st!==1||t.k!==p.s||t.q<0||t.o!==p.hand.d||dist(p.x,p.z,t.x,t.z)>8)return this.fx(p,'수락한 주문의 테이블에 맞는 요리를 가져가요!','err');
         const g=PR[t.o]+(p.hand.q===3?100:p.hand.q===2?50:0);
-        p.hand=null;p.coins+=g;p.sv=1;t.st=2;t.eu=now+5000;
+        p.hand=null;p.coins+=g;p.sv=1;t.st=2;t.eu=now+5000;p.job=null;t.k=0;t.ct=0;
         this.send(p,this.me(p));this.fx(p,NM[t.o]+' 서빙 완료! 주문 금액 +'+g+'원','coin',g);
         this.send(t,this.me(t));this.fx(t,'음식이 나왔어요! 맛있게 드세요 😋','serve');this.st(t);return}
-      case 'pay':{
-        if(p.r!=='g'||p.st!==2||p.q>=0)return this.fx(p,'먼저 일어나서 키오스크로 가요','err');
-        if(now<p.eu-300)return this.fx(p,'아직 식사 중이에요','err');
-        if(!KIOSK.some(k=>dist(p.x,p.z,k[0],k[1])<=7))return this.fx(p,'키오스크에서 결제해요','err');
-        const o=p.o,pr=PR[o];if(p.coins<pr)return this.fx(p,'돈이 부족해요','err');
-        p.coins-=pr;p.st=0;p.o=-1;p.sv=1;const r=this.me(p);r.rc={o,p:pr};this.send(p,r);this.st(p);return}
       case 'clean':{
         if(p.r!=='g'||p.q>=0||!isInt(m.i,0,TB.length-1))return;
         const k=win(now)+':'+m.i;
@@ -180,7 +189,7 @@ export class Game{
         if(typeof m.x!=='string')return;const x=m.x.replace(/[\u0000-\u001f\u007f<>]/g,'').trim().slice(0,60);if(!x)return;
         if(!this.cd(p,'chat',800,now))return;this.all({t:'chat',n:p.n,r:p.r,x:x.replace(BAD,'***')});return}
       case 'role':{
-        if((m.r!=='g'&&m.r!=='c')||p.q!==-1||p.st!==0||p.hand||p.ck)return this.fx(p,'앉아 있거나 주문·요리 중에는 직업을 바꿀 수 없어요','err');
+        if((m.r!=='g'&&m.r!=='c')||p.q!==-1||p.st!==0||p.hand||p.ck||p.job)return this.fx(p,'앉아 있거나 주문·요리 중에는 직업을 바꿀 수 없어요','err');
         p.r=m.r;if(isInt(m.c,0,47))p.c=m.c;const sp=SPAWN[p.r];p.x=sp[0];p.z=sp[1];p.lp=now;
         this.send(p,{...this.me(p,true),rr:1});this.all({t:'join',p:this.pub(p)},p);this.io.save(p,this.snap(p));return}
     }
